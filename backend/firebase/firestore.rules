@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isDocOwner(resourceOwnerId) {
+      return isSignedIn() && request.auth.uid == resourceOwnerId;
+    }
+
+    function sanitizedUser(doc) {
+      return {
+        displayUnit: doc.displayUnit,
+        buildingId: doc.buildingId,
+        avatarUrl: doc.avatarUrl,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt
+      };
+    }
+
+    match /users/{userId} {
+      allow create: if isSignedIn() && request.auth.uid == userId;
+
+      allow read: if isAdmin() || isDocOwner(userId);
+
+      allow update: if isAdmin() || (
+          isDocOwner(userId) &&
+          !('verificationStatus' in request.resource.data &&
+            request.resource.data.verificationStatus != resource.data.verificationStatus)
+        );
+
+      allow delete: if isAdmin();
+
+      match /publicProfile/{profileId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    match /buildings/{buildingId} {
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if false;
+
+      match /units/{unitId} {
+        allow read: if isAdmin() || isDocOwner(resource.data.userId);
+        allow write: if isAdmin();
+      }
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid &&
+        request.resource.data.imageUrls.size() <= 3;
+
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.authorId == request.auth.uid &&
+        request.resource.data.imageUrls.size() <= 3
+      );
+
+      allow delete: if isAdmin() || (
+        isSignedIn() && resource.data.authorId == request.auth.uid);
+
+      match /ratings/{ratingId} {
+        allow read: if true;
+        allow create, update: if isSignedIn() && request.auth.uid == request.resource.data.userId;
+        allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.userId);
+      }
+    }
+
+    match /services/{serviceId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
+
+      match /ratings/{ratingId} {
+        allow read: if true;
+        allow create, update, delete: if isSignedIn() && request.auth.uid == request.resource.data.userId;
+      }
+    }
+
+    match /listings/{listingId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.imageUrls.size() <= 6;
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.sellerId == request.auth.uid);
+    }
+
+    match /verifications/{verificationId} {
+      allow read: if isAdmin() || isDocOwner(resource.data.userId);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+    }
+
+    match /geofences/{geofenceId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
